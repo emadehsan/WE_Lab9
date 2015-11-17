@@ -1,0 +1,226 @@
+<html>
+<head>
+	<title>Calender & Weather | PouchDB</title>
+	<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.3.15/angular.min.js"></script>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+
+	<!-- fonts -->
+	<link href='https://fonts.googleapis.com/css?family=Oswald|Indie+Flower|Play' rel='stylesheet' type='text/css'>
+
+
+<style>
+* {
+	/*font-family: 'Oswald', sans-serif;*/
+	/*font-family: 'Indie Flower', cursive;*/
+	font-family: 'Play', sans-serif;
+}
+
+.container {
+	margin: auto;
+}
+
+table, th , td  {
+  border: 1px solid grey;
+  border-collapse: collapse;
+  padding: 5px;
+}
+table tr:nth-child(odd)	{
+  background-color: #f1f1f1;
+}
+table tr:nth-child(even) {
+  background-color: #ffffff;
+}
+table tr:first-child {
+	font-weight: bold;
+}
+</style>
+
+</head>
+<body>
+<script src="pouchdb-5.1.0.min.js"></script>
+
+
+<div class="container" ng-app="calapp" ng-controller="calcontroller"> 
+	<table>
+	  <tr ng-repeat="week in month">
+	    <td ng-repeat="day in week">{{ day }}</td>
+	  </tr>
+	</table>
+</div>
+
+<script type="text/javascript">
+// var pdb = new PouchDB('calendar');
+
+var today, todayNumber, mondayNumber, sundayNumber, monday, sunday;
+    today = new Date();
+
+    var monthDays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    
+    // only week days names are present, add weeks programmatically
+    var month = [
+    				['Mon', 'Tue', 'Wed', 'Thr', 'Fri', 'Sat', 'Sun'], 
+    				[0, 0, 0, 0, 0, 0, 0],
+    				[0, 0, 0, 0, 0, 0, 0],
+    				[0, 0, 0, 0, 0, 0, 0],
+    				[0, 0, 0, 0, 0, 0, 0],
+    				[0, 0, 0, 0, 0, 0, 0],
+    				[0, 0, 0, 0, 0, 0, 0]
+    			];
+
+    
+    var currDateCoords = '5,5';
+    var currDateWeather = '';
+
+
+
+    var monDay = today.getDate();
+    var weekDay = today.getDay();
+    var rem = monDay - weekDay;
+    var extra = rem % 7;
+
+    // first week's initial days from previous month
+    var prevMonDays = monthDays[ today.getMonth() - 1 ];
+    var prevMonRemDays = 7 - extra;
+
+    for (var i = prevMonRemDays; i > 0 ; i-- ) {
+    	month[1][i-1] = prevMonDays;
+    	prevMonDays--;
+    }
+
+    // now add current months days
+    for (var i = 0; i < monthDays[ today.getMonth() ]; i++ ) {
+    	// week 0 contains day names
+    	// week 1's start dates contain some of the dates from previous month
+    	monWeek = parseInt( (i+prevMonRemDays) / 7 ) + 1;
+
+    	var weekDayNum = (i + prevMonRemDays) % 7;
+    	month[monWeek][weekDayNum] = i+1;
+
+    	if (i+1 == today.getDate()) // remember coordinates of current date
+    		currDateCoords = monWeek + "," + weekDayNum;
+
+    }
+
+    // fill last week's remaining days which belong to next month
+    var j = 1;
+    for (var i = 0; i < 7; i++) {
+    	if (month[6][i] == 0 ) {
+    		month[6][i] = j;
+    		j++;
+    	}
+    }
+    console.log(month);
+var app = angular.module('calapp', []);
+app.controller('calcontroller', function($scope, $http) {
+	getData();
+	$scope.month = month;
+});
+
+function getCurrDateFormetted()
+{
+	var monNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+	var currDateFormatted = today.getDate()+" "+monNames[today.getMonth()]+" "+today.getFullYear();
+
+	return currDateFormatted;
+}
+
+var jsonData;
+
+function getData()
+{
+	var forecast = getTodayFromPouch();
+
+	if (forecast == null)
+		getJsonData();
+	else
+		showData();
+	
+
+}
+
+function showData()
+{
+	var coords = currDateCoords.split(",");
+
+	// $( "tr:eq("+coords[0]+") td:eq("+coords[1]+")").css("font-weight", "bold");
+	$( "tr:eq("+coords[0]+") td:eq("+coords[1]+")").text(currDateWeather);
+}
+
+function getJsonData() 
+{
+	jsonData = $.ajax({
+		dataType: "json",
+		url: "https://query.yahooapis.com/v1/public/yql?q=select%20*%20from%20weather.forecast%20where%20woeid%20in%20(select%20woeid%20from%20geo.places(1)%20where%20text%3D%22islamabad%22)&format=json&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys",
+		success: function(data) {
+			// console.log(jsonData.responseJSON.query.results.channel.item.forecast[0]);
+			var f = jsonData.responseJSON.query.results.channel.item.forecast;
+			// add forecast data to pouch
+			addToPouch(f);
+
+			for (var i = 0; i < f.length; i++) {
+				if (f[i].date == getCurrDateFormetted()) {
+					currDateWeather = f[i].high + "^ " + f[i].low + "v "+ f[i].text;
+					// alert(currDateWeather);
+
+					// update calendar
+					var coords = currDateCoords.split(',');
+					month[ coords[0] ][ coords[1] ] = currDateWeather;
+
+					showData();
+					// console.log(month);
+					break;
+				}
+			}
+		}
+	});
+}
+
+
+function addToPouch(items)
+{
+	var db = new PouchDB('weather');
+
+	var item;
+
+	for (var i = 0; i < items.length; i++) {
+		item = {
+			_id: new Date().toISOString(),
+			date: items[i].date,
+			high: items[i].high,
+			low: items[i].low
+		};
+		db.put(item, null);
+	}
+}
+
+/*
+* returns the current date's Forecast
+* if current date's forecast is not in DB
+* returns null
+*/
+function getTodayFromPouch()
+{
+	var currDate = getCurrDateFormetted();
+
+	var db = new PouchDB("weather");
+	var forecast = null;
+	db.allDocs({include_docs: true, descending: true}, function(err, doc) {
+    	// redrawTodosUI(doc.rows);
+    	console.log(doc.rows);
+    	for (var i = 0; i < doc.rows.length; i++) {
+    		// console.log();
+    		if (doc.rows[i].doc.date == currDate) {
+    			forecast = doc.rows[i].doc;
+    			break;
+    		}
+    	}
+  	});
+
+  	return forecast
+}
+
+
+</script>
+
+</body>
+</html>
